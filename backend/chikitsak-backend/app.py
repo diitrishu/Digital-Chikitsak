@@ -155,10 +155,10 @@ def login():
             pid = str(uuid.uuid4())
             cur.execute(
                 """
-                INSERT INTO patients (patient_id, phone, name, age, gender, blood_group, current_medications, medical_history)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                INSERT INTO patients (patient_id, phone, name, age, gender, blood_group, current_medications, medical_history, relation, patient_phone, profile_image)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
-                (pid, user["phone"], user.get("name") or user["phone"], None, None, None, "", "")
+                (pid, user["phone"], user.get("name") or user["phone"], None, None, None, "", "", "Self", user["phone"], "")
             )
             cn.commit()
     token = create_token(user)
