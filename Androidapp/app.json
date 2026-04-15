@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "Digital Chikitsak",
+    "slug": "digital-chikitsak",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow Digital Chikitsak to use speech recognition.",
+        "NSMicrophoneUsageDescription": "Allow Digital Chikitsak to access the microphone."
+      }
+    },
+    "android": {
+      "package": "com.digitalchikitsak.patient",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "SEND_SMS",
+        "CALL_PHONE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "@jamsch/expo-speech-recognition",
+        {
+          "speechRecognitionPermission": "Allow Digital Chikitsak to use speech recognition.",
+          "microphonePermission": "Allow Digital Chikitsak to access the microphone."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#14b8a6"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Digital Chikitsak to use your location for emergency SOS."
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a41c09fc-8d85-4317-9b39-2ad7aa61278b"
+      }
+    }
+  }
+}

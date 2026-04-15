@@ -1,7 +1,32 @@
-Flask
-flask-cors
-pymysql
-python-dotenv
-werkzeug
-requests
+# Core Flask
+flask==2.3.2
+flask-cors==4.0.0
+flask-limiter==3.8.0
+werkzeug==2.3.6
+
+# Auth & Security
 PyJWT==2.8.0
+bcrypt==4.0.1
+
+# Supabase (replaces MySQL)
+supabase>=2.0.0
+
+# Cloudinary
+cloudinary>=1.44.0
+
+# Machine Learning
+scikit-learn==1.3.0
+numpy==1.24.3
+pandas==2.0.3
+joblib==1.3.1
+scipy==1.11.1
+
+# HTTP & Config
+requests==2.31.0
+python-dotenv==1.0.0
+
+# Utilities
+markupsafe==2.1.3
+itsdangerous==2.1.2
+blinker==1.6.2
+click==8.1.6

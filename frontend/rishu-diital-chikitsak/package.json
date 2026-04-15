@@ -1,23 +1,59 @@
 {
-  "name": "telemedicine-frontend",
-  "version": "1.0.0",
+  "name": "digital-chikitsak-frontend",
+  "version": "2.0.0",
+  "description": "Digital Chikitsak - Advanced Multi-language Telemedicine Platform with Token Management System for Rural Healthcare",
   "private": true,
   "type": "module",
+  "keywords": [
+    "telemedicine",
+    "healthcare",
+    "rural-health",
+    "multi-language",
+    "video-consultation",
+    "token-system",
+    "queue-management",
+    "punjabi",
+    "hindi",
+    "react",
+    "vite"
+  ],
+  "author": "Digital Chikitsak Team",
+  "license": "MIT",
+  "homepage": ".",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/digital-chikitsak/frontend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/digital-chikitsak/frontend/issues"
+  },
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview --host",
+    "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint src --ext js,jsx --fix",
+    "serve": "vite preview",
+    "clean": "rm -rf dist",
+    "analyze": "vite build --mode analyze"
   },
   "dependencies": {
-    "axios": "^1.4.0",
+    "@cloudinary/react": "^1.14.4",
+    "@cloudinary/url-gen": "^1.22.0",
+    "@supabase/supabase-js": "^2.103.0",
+    "axios": "^1.12.2",
+    "cloudinary-react": "^1.8.1",
     "framer-motion": "^7.6.12",
+    "i18next": "^25.5.2",
+    "i18next-browser-languagedetector": "^8.2.0",
     "lucide-react": "^0.542.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-hot-toast": "^2.4.1",
+    "react-i18next": "^15.7.3",
     "react-router-dom": "^6.14.2",
-    "uuid": "^9.0.0",
     "react-webcam": "^7.1.1",
-    "react-hot-toast": "^2.4.1"
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.2",
