@@ -183,17 +183,17 @@ def login():
         return jsonify({"error": "Invalid phone number"}), 400
     logger.info(f"Login attempt for phone={phone}")
     try:
-        res = sb().table("accounts").select("*").eq("phone", phone).maybe_single().execute()
+        res = sb().table("accounts").select("*").eq("phone", phone).limit(1).execute()
     except Exception as e:
         logger.error(f"Login DB error: {e}")
         return jsonify({"error": "Database error, please try again"}), 500
     if hasattr(res, "error") and res.error:
         logger.error(f"Login query error: {res.error}")
         return jsonify({"error": "Database error, please try again"}), 500
-    if not res.data or not check_password_hash(res.data["pin_hash"], pin):
+    if not res.data or not check_password_hash(res.data[0]["pin_hash"], pin):
         logger.warning(f"Failed login attempt for phone={phone}")
         return jsonify({"error": "invalid credentials"}), 401
-    row  = res.data
+    row  = res.data[0]
     user = {"phone": row["phone"], "name": row["name"], "role": row["role"]}
     # ensure self patient exists
     if user["role"] == "patient":
