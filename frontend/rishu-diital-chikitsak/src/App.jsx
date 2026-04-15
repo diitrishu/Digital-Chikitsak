@@ -13,9 +13,6 @@ export default function App() {
   const [lowBandwidthMode, setLowBandwidthMode] = useState(false)
 
   useEffect(() => {
-    // Force language selector to show first (project specification requirement)
-    localStorage.removeItem('selectedLanguage')
-    
     // Check if user has selected a language before
     const savedLanguage = localStorage.getItem('selectedLanguage')
     

@@ -9,7 +9,6 @@ import PatientDashboard from "./patient/pages/Dashboard";
 import EnhancedSymptomChecker from "./patient/pages/SmartConsultation";
 import FamilyMembers from "./patient/pages/Family";
 import CompleteRegistration from "./pages/CompleteRegistration";
-import TestPage from "./pages/TestPage";
 import TemplatePage from "./shared/components/TemplatePage";
 import PharmacyFinder from "./patient/pages/Pharmacy";
 import BookDoctor from "./patient/pages/BookDoctor";
@@ -38,7 +37,6 @@ const router = createBrowserRouter([
   { path: "/about", element: <TemplatePage title="About Digital Chikitsak" description="Learn more about our telemedicine platform" /> },
   { path: "/login", element: <Login /> },
   { path: "/register", element: <SimpleRegistration /> },
-  { path: "/test", element: <TestPage /> },
   { path: "/api-test", element: <TemplatePage title="API Test" description="System diagnostics and testing" /> },
 
   {

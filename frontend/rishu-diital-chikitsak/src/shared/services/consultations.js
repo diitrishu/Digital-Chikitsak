@@ -2,7 +2,7 @@ import api from './api'
 
 export async function listConsultations() {
   try {
-    const { data } = await api.get('/consultations')
+    const { data } = await api.authApi.get('/consultations')
     return data
   } catch (error) {
     console.error('Error fetching consultations:', error)
@@ -12,7 +12,7 @@ export async function listConsultations() {
 
 export async function getConsultation(consultationId) {
   try {
-    const { data } = await api.get(`/consultations/${consultationId}`)
+    const { data } = await api.authApi.get(`/consultations/${consultationId}`)
     return data
   } catch (error) {
     console.error('Error fetching consultation:', error)
@@ -22,7 +22,7 @@ export async function getConsultation(consultationId) {
 
 export async function createConsultation({ patient_id, doctor_id, symptoms }) {
   try {
-    const { data } = await api.post('/consultations', { patient_id, doctor_id, symptoms })
+    const { data } = await api.authApi.post('/consultations', { patient_id, doctor_id, symptoms })
     return data
   } catch (error) {
     console.error('Error creating consultation:', error)

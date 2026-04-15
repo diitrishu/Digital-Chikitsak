@@ -17,6 +17,9 @@ dist/
 build/
 *.db
 
+# Local uploads (never commit user files)
+backend/chikitsak-backend/uploads/
+
 # Logs
 *.log
 npm-debug.log*

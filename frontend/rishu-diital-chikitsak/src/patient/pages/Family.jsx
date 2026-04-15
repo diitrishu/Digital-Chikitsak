@@ -65,7 +65,6 @@ export default function FamilyMembers() {
   async function loadMembers() {
     try {
       const data = await api.getPatients();
-      console.log("API Response:", data);
       setMembers(data || []);
     } catch (error) {
       console.error("Failed to load family members:", error);
@@ -83,9 +82,7 @@ export default function FamilyMembers() {
 
     setLoading(true);
     try {
-      console.log("Sending form data:", form);
       const response = await api.addPatient(form);
-      console.log("Add patient response:", response);
       
       toast.success(t('family.memberAdded'));
       setForm({ 
@@ -138,16 +135,11 @@ export default function FamilyMembers() {
     navigate('/patient/symptom-checker');
   };
 
-  // Send member details to doctor
-  const sendToDoctor = async (member) => {
-    try {
-      const response = await api.sendToDoctor(member);
-      console.log("Send to doctor response:", response);
-      toast.success(`${t('family.sendToDoctor')} ${member.name} ${t('common.success')}`);
-    } catch (error) {
-      console.error("Failed to send to doctor:", error);
-      toast.error(`${t('common.error')}: ${error.message || 'Failed to send to doctor'}`);
-    }
+  // Send member details to doctor — navigates to book doctor with member pre-selected
+  const sendToDoctor = (member) => {
+    localStorage.setItem('selectedPatient', JSON.stringify(member));
+    navigate('/patient/book-doctor');
+    toast.success(`${t('family.sendToDoctor')} ${member.name}`);
   };
 
   useEffect(() => {

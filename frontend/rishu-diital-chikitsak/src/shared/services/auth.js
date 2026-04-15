@@ -37,10 +37,7 @@ export function guestLogin() {
 
 export async function register(payload) {
     try {
-        console.log("Sending registration request:", payload);
         const response = await api.register(payload);
-        console.log("Registration response:", response);
-        
         const { token, user } = response;
         localStorage.setItem("token", token);
         localStorage.setItem("user", JSON.stringify(user));
@@ -54,7 +51,7 @@ export async function register(payload) {
 
 export async function addFamilyMember(payload) {
     const token = localStorage.getItem("token");
-    const res = await api.post("/family/add", payload, {
+    const res = await api.authApi.post("/patients", payload, {
         headers: { Authorization: `Bearer ${token}` }
     });
     return res.data;
@@ -83,10 +80,10 @@ export async function getPatientsForAccount() {
     if (!token) return [];
 
     try {
-        const res = await api.get("/patients", {
+        const res = await api.authApi.get("/patients", {
             headers: { Authorization: `Bearer ${token}` },
         });
-        return res.data; // should return an array of patient/family member objects
+        return res.data;
     } catch (err) {
         console.error("Failed to fetch patients", err);
         return [];

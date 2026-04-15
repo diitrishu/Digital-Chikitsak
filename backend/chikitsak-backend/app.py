@@ -4,23 +4,34 @@ All data stored in Supabase. No MySQL dependency.
 Flask handles: JWT auth, AI endpoints, Cloudinary uploads, hospital GeoJSON.
 """
 from flask import Flask, request, jsonify
-from flask_cors import CORS, cross_origin
+from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import uuid, requests, os, json, datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
-import re, jwt
+import re, jwt, logging
 from supabase_client import get_supabase
 from hospital_data import find_nearby_hospitals
 
 load_dotenv()
 
+# ── logging setup ─────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
 LMSTUDIO_URL = os.getenv("LMSTUDIO_URL", "http://127.0.0.1:1234/v1/chat/completions")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "qwen3")
 JWT_SECRET    = os.getenv("JWT_SECRET", "dev-secret-change")
 JWT_ALG       = "HS256"
+
+if JWT_SECRET == "dev-secret-change":
+    logger.warning("⚠️  JWT_SECRET is using the default insecure value. Set JWT_SECRET in your .env file!")
 
 app = Flask(__name__)
 CORS(app, origins="*", supports_credentials=False)
@@ -86,18 +97,38 @@ def sb():
     """Shorthand for Supabase client."""
     return get_supabase()
 
+def safe_query(query):
+    """Execute a Supabase query and raise on error. Returns res.data."""
+    res = query.execute()
+    if hasattr(res, "error") and res.error:
+        logger.error(f"Supabase query error: {res.error}")
+        raise Exception(str(res.error))
+    return res.data
+
 def get_self_patient(phone):
     """Return the 'Self' app_patient row for this account, create if missing."""
-    res = sb().table("app_patients").select("*").eq("account_phone", phone).eq("relation", "Self").limit(1).execute()
-    if res.data:
-        return res.data[0]
-    # auto-create
-    acc = sb().table("accounts").select("name").eq("phone", phone).maybe_single().execute()
-    name = acc.data["name"] if acc.data else phone
-    new = sb().table("app_patients").insert({
-        "account_phone": phone, "name": name, "relation": "Self", "patient_phone": phone
-    }).execute()
-    return new.data[0] if new.data else None
+    try:
+        rows = safe_query(
+            sb().table("app_patients").select("*").eq("account_phone", phone).eq("relation", "Self").limit(1)
+        )
+        if rows:
+            return rows[0]
+        # auto-create — look up name first
+        acc = sb().table("accounts").select("name").eq("phone", phone).maybe_single().execute()
+        if hasattr(acc, "error") and acc.error:
+            logger.error(f"get_self_patient account lookup error: {acc.error}")
+            return None
+        name = acc.data["name"] if acc.data else phone
+        new = sb().table("app_patients").insert({
+            "account_phone": phone, "name": name, "relation": "Self", "patient_phone": phone
+        }).execute()
+        if hasattr(new, "error") and new.error:
+            logger.error(f"get_self_patient insert error: {new.error}")
+            return None
+        return new.data[0] if new.data else None
+    except Exception as e:
+        logger.error(f"get_self_patient exception: {e}")
+        return None
 
 # ── auth ─────────────────────────────────────────────────────────────────────
 
@@ -111,17 +142,31 @@ def register():
     role  = data.get("role", "patient")
     if not phone or not pin or not name:
         return jsonify({"error": "phone, pin and name required"}), 400
+    if not re.match(r"^[6-9]\d{9}$", phone):
+        return jsonify({"error": "Invalid phone number"}), 400
     # check duplicate
-    existing = sb().table("accounts").select("phone").eq("phone", phone).execute()
-    if existing.data:
+    try:
+        existing = safe_query(sb().table("accounts").select("phone").eq("phone", phone))
+    except Exception as e:
+        logger.error(f"Register duplicate check error: {e}")
+        return jsonify({"error": "Database error, please try again"}), 500
+    if existing:
         return jsonify({"error": "Phone number already registered"}), 409
     hashed = generate_password_hash(pin)
-    sb().table("accounts").insert({"phone": phone, "pin_hash": hashed, "name": name, "role": role}).execute()
+    try:
+        safe_query(sb().table("accounts").insert({"phone": phone, "pin_hash": hashed, "name": name, "role": role}))
+    except Exception as e:
+        logger.error(f"Register insert error: {e}")
+        return jsonify({"error": "Failed to create account"}), 500
     # create self patient row
     if role == "patient":
-        sb().table("app_patients").insert({
-            "account_phone": phone, "name": name, "relation": "Self", "patient_phone": phone
-        }).execute()
+        try:
+            safe_query(sb().table("app_patients").insert({
+                "account_phone": phone, "name": name, "relation": "Self", "patient_phone": phone
+            }))
+        except Exception as e:
+            logger.warning(f"Register self-patient creation failed: {e}")
+    logger.info(f"New registration: phone={phone}, role={role}")
     user  = {"phone": phone, "name": name, "role": role}
     token = create_token(user)
     return jsonify({"token": token, "user": user})
@@ -134,14 +179,26 @@ def login():
     pin   = data.get("pin") or data.get("password")
     if not phone or not pin:
         return jsonify({"error": "phone and pin required"}), 400
-    res = sb().table("accounts").select("*").eq("phone", phone).maybe_single().execute()
+    if not re.match(r"^[6-9]\d{9}$", phone):
+        return jsonify({"error": "Invalid phone number"}), 400
+    logger.info(f"Login attempt for phone={phone}")
+    try:
+        res = sb().table("accounts").select("*").eq("phone", phone).maybe_single().execute()
+    except Exception as e:
+        logger.error(f"Login DB error: {e}")
+        return jsonify({"error": "Database error, please try again"}), 500
+    if hasattr(res, "error") and res.error:
+        logger.error(f"Login query error: {res.error}")
+        return jsonify({"error": "Database error, please try again"}), 500
     if not res.data or not check_password_hash(res.data["pin_hash"], pin):
+        logger.warning(f"Failed login attempt for phone={phone}")
         return jsonify({"error": "invalid credentials"}), 401
     row  = res.data
     user = {"phone": row["phone"], "name": row["name"], "role": row["role"]}
     # ensure self patient exists
     if user["role"] == "patient":
         get_self_patient(phone)
+    logger.info(f"Successful login for phone={phone}, role={user['role']}")
     token = create_token(user)
     return jsonify({"token": token, "user": user})
 
@@ -188,19 +245,21 @@ def delete_reminder(reminder_id):
 @require_auth
 def list_patients():
     user = request.user
-    if user.get("role") == "patient":
-        res = sb().table("app_patients").select("*").eq("account_phone", user["phone"]).execute()
-        rows = res.data or []
-        if not rows:
-            p = get_self_patient(user["phone"])
-            rows = [p] if p else []
-    else:
-        phone = request.args.get("phone")
-        if phone:
-            res = sb().table("app_patients").select("*").eq("account_phone", phone).execute()
+    try:
+        if user.get("role") == "patient":
+            rows = safe_query(sb().table("app_patients").select("*").eq("account_phone", user["phone"]))
+            if not rows:
+                p = get_self_patient(user["phone"])
+                rows = [p] if p else []
         else:
-            res = sb().table("app_patients").select("*").limit(100).execute()
-        rows = res.data or []
+            phone = request.args.get("phone")
+            if phone:
+                rows = safe_query(sb().table("app_patients").select("*").eq("account_phone", phone))
+            else:
+                rows = safe_query(sb().table("app_patients").select("*").limit(100))
+    except Exception as e:
+        logger.error(f"list_patients error: {e}")
+        return jsonify({"error": "Failed to fetch patients"}), 500
     return jsonify(rows)
 
 @app.route("/api/patients", methods=["POST"])
@@ -224,10 +283,14 @@ def add_patient():
         "patient_phone":       data.get("phone", ""),
         "profile_image":       data.get("profile_image", ""),
     }
-    res = sb().table("app_patients").insert(payload).execute()
-    if not res.data:
+    try:
+        rows = safe_query(sb().table("app_patients").insert(payload))
+    except Exception as e:
+        logger.error(f"add_patient error: {e}")
         return jsonify({"error": "Failed to add patient"}), 500
-    return jsonify({"patient_id": res.data[0]["id"], "message": "Patient added successfully"})
+    if not rows:
+        return jsonify({"error": "Failed to add patient"}), 500
+    return jsonify({"patient_id": rows[0]["id"], "message": "Patient added successfully"})
 
 # ── consultations ─────────────────────────────────────────────────────────────
 
@@ -235,16 +298,19 @@ def add_patient():
 @require_auth
 def list_consultations():
     user = request.user
-    if user.get("role") == "patient":
-        # get all patient ids for this account
-        pts = sb().table("app_patients").select("id").eq("account_phone", user["phone"]).execute()
-        ids = [p["id"] for p in (pts.data or [])]
-        if not ids:
-            return jsonify([])
-        res = sb().table("consultations").select("*").in_("patient_id", ids).order("created_at", desc=True).execute()
-    else:
-        res = sb().table("consultations").select("*").eq("doctor_phone", user["phone"]).order("created_at", desc=True).execute()
-    return jsonify(res.data or [])
+    try:
+        if user.get("role") == "patient":
+            ids = safe_query(sb().table("app_patients").select("id").eq("account_phone", user["phone"]))
+            ids = [p["id"] for p in (ids or [])]
+            if not ids:
+                return jsonify([])
+            rows = safe_query(sb().table("consultations").select("*").in_("patient_id", ids).order("created_at", desc=True))
+        else:
+            rows = safe_query(sb().table("consultations").select("*").eq("doctor_phone", user["phone"]).order("created_at", desc=True))
+    except Exception as e:
+        logger.error(f"list_consultations error: {e}")
+        return jsonify({"error": "Failed to fetch consultations"}), 500
+    return jsonify(rows or [])
 
 @app.route("/api/consultations", methods=["POST"])
 @require_auth
@@ -268,26 +334,31 @@ def create_consultation():
         "follow_up_days": data.get("follow_up_days"),
         "severity":       data.get("severity", "mild"),
     }
-    res = sb().table("consultations").insert(payload).execute()
-    if not res.data:
+    try:
+        rows = safe_query(sb().table("consultations").insert(payload))
+    except Exception as e:
+        logger.error(f"create_consultation error: {e}")
         return jsonify({"error": "Failed to create consultation"}), 500
-    row = res.data[0]
-    return jsonify({"consultation_id": row["id"], "meeting_link": meeting_link})
+    if not rows:
+        return jsonify({"error": "Failed to create consultation"}), 500
+    return jsonify({"consultation_id": rows[0]["id"], "meeting_link": meeting_link})
 
 @app.route("/api/consultations/<cid>", methods=["GET"])
 @require_auth
 def get_consultation(cid):
-    res = sb().table("consultations").select("*").eq("id", cid).maybe_single().execute()
+    try:
+        res = sb().table("consultations").select("*").eq("id", cid).maybe_single().execute()
+    except Exception as e:
+        logger.error(f"get_consultation error: {e}")
+        return jsonify({"error": "Database error"}), 500
+    if hasattr(res, "error") and res.error:
+        logger.error(f"get_consultation query error: {res.error}")
+        return jsonify({"error": str(res.error)}), 500
     if not res.data:
         return jsonify({"error": "not found"}), 404
     return jsonify(res.data)
 
 # ── health records (Cloudinary) ───────────────────────────────────────────────
-
-ALLOWED_EXTENSIONS = {'txt','pdf','png','jpg','jpeg','gif','doc','docx'}
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route("/api/health-records", methods=["GET"])
 @require_auth
@@ -295,53 +366,95 @@ def get_health_records():
     patient = get_self_patient(request.user["phone"])
     if not patient:
         return jsonify({"records": []})
-    res = sb().table("health_records").select("*").eq("patient_id", patient["id"]).order("created_at", desc=True).execute()
-    return jsonify({"records": res.data or []})
+    try:
+        rows = safe_query(
+            sb().table("health_records").select("*").eq("patient_id", patient["id"]).order("created_at", desc=True)
+        )
+        return jsonify({"records": rows or []})
+    except Exception as e:
+        logger.error(f"get_health_records error: {e}")
+        return jsonify({"records": []})
 
-@app.route("/api/health-records", methods=["POST", "OPTIONS"])
-@cross_origin()
+@app.route("/api/health-records", methods=["POST"])
 @require_auth
-@limiter.limit("10 per hour")
+@limiter.limit("20 per hour")
 def upload_health_record():
+    """
+    Accepts multipart/form-data with the actual file.
+    Flask uploads the file to Cloudinary server-side (avoids browser SSL issues),
+    then saves only the Cloudinary URL + metadata to Supabase.
+    """
     try:
         from cloudinary_client import upload_file
+
         if 'file' not in request.files:
             return jsonify({"error": "No file provided"}), 400
+
         file = request.files['file']
-        if not file.filename or not allowed_file(file.filename):
-            return jsonify({"error": "Invalid file type"}), 400
-        title       = request.form.get('title')
-        record_type = request.form.get('record_type', 'report')
-        record_date = request.form.get('record_date')
-        notes       = request.form.get('notes', '')
-        if not title or not record_date:
-            return jsonify({"error": "Title and record date are required"}), 400
+        if not file or not file.filename:
+            return jsonify({"error": "No file selected"}), 400
 
-        # Upload to Cloudinary
+        # Validate extension
+        allowed = {'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx'}
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if ext not in allowed:
+            return jsonify({"error": f"File type .{ext} not allowed. Use: PDF, JPG, PNG, GIF, DOC, DOCX"}), 400
+
+        title       = (request.form.get('title') or '').strip()
+        record_type = (request.form.get('record_type') or 'report').strip()
+        record_date = (request.form.get('record_date') or '').strip()
+        notes       = (request.form.get('notes') or '').strip()
+
+        if not title:
+            return jsonify({"error": "title is required"}), 400
+        if not record_date:
+            return jsonify({"error": "record_date is required"}), 400
+
+        # Read file bytes and upload to Cloudinary
         file_bytes = file.read()
-        filename   = secure_filename(file.filename)
-        result     = upload_file(file_bytes, folder="health_records")
-        file_url   = result.get("secure_url", "")
-        file_size  = f"{round(len(file_bytes)/1024, 1)} KB"
+        if len(file_bytes) > 20 * 1024 * 1024:
+            return jsonify({"error": "File too large. Maximum size is 20 MB"}), 400
 
+        filename = secure_filename(file.filename)
+        file_size = f"{round(len(file_bytes) / 1024, 1)} KB"
+
+        result = upload_file(file_bytes, folder="chikitsak/health_records", resource_type="auto")
+        file_url = result.get("secure_url", "")
+
+        if not file_url:
+            logger.error("Cloudinary upload returned no secure_url")
+            return jsonify({"error": "Cloudinary upload failed — no URL returned"}), 500
+
+        # Get patient record
         patient = get_self_patient(request.user["phone"])
         if not patient:
             return jsonify({"error": "Patient not found"}), 404
 
-        row = sb().table("health_records").insert({
-            "patient_id":  patient["id"],
-            "title":       title,
-            "record_type": record_type,
-            "file_url":    file_url,
-            "file_name":   filename,
-            "file_size":   file_size,
-            "record_date": record_date,
-            "notes":       notes,
-        }).execute()
-        return jsonify({"record": row.data[0] if row.data else {}}), 201
+        # Save metadata to Supabase
+        try:
+            rows = safe_query(sb().table("health_records").insert({
+                "patient_id":  patient["id"],
+                "title":       title,
+                "record_type": record_type,
+                "file_url":    file_url,
+                "file_name":   filename,
+                "file_size":   file_size,
+                "record_date": record_date,
+                "notes":       notes,
+            }))
+        except Exception as e:
+            logger.error(f"health_records insert error: {e}")
+            return jsonify({"error": "Failed to save record to database"}), 500
+
+        if not rows:
+            return jsonify({"error": "Failed to save record"}), 500
+
+        logger.info(f"Health record saved: patient={patient['id']}, file={filename}, url={file_url[:60]}")
+        return jsonify({"record": rows[0]}), 201
+
     except Exception as e:
-        print(f"Upload error: {e}")
-        return jsonify({"error": "Failed to upload health record"}), 500
+        logger.error(f"upload_health_record unexpected error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/health-records/<record_id>", methods=["DELETE"])
 @require_auth
@@ -588,5 +701,6 @@ Return ONLY JSON: {{"summary":"...","advice":"...","see_doctor":true/false}}"""
 # ── run ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    logger.info("Starting Digital Chikitsak backend on port 5000")
     app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
 

@@ -31,8 +31,15 @@ import { supabase } from '../services/supabase'
 const CLOUDINARY_CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME
 const UPLOAD_PRESET    = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'chikitsak_unsigned'
 
+// Max file size: 20 MB
+const MAX_FILE_BYTES = 20 * 1024 * 1024
+
 // ── Upload to Cloudinary ──────────────────────────────────────────────────────
 async function uploadToCloudinary(blob, resourceType, folder) {
+  if (!CLOUDINARY_CLOUD || CLOUDINARY_CLOUD === 'your_cloudinary_cloud_name') {
+    throw new Error('Cloudinary is not configured. Set VITE_CLOUDINARY_CLOUD_NAME in your .env file.')
+  }
+
   const form = new FormData()
   form.append('file', blob)
   form.append('upload_preset', UPLOAD_PRESET)
@@ -42,8 +49,19 @@ async function uploadToCloudinary(blob, resourceType, folder) {
     `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/${resourceType}/upload`,
     { method: 'POST', body: form }
   )
-  if (!res.ok) throw new Error('Upload failed')
+
   const data = await res.json()
+
+  if (!res.ok) {
+    // Cloudinary returns { error: { message: '...' } } on failure
+    const msg = data?.error?.message || `Upload failed (HTTP ${res.status})`
+    throw new Error(msg)
+  }
+
+  if (!data.secure_url) {
+    throw new Error('Cloudinary did not return a file URL')
+  }
+
   return { url: data.secure_url, duration: data.duration || null, publicId: data.public_id }
 }
 
@@ -250,8 +268,10 @@ export default function ConsultationChat({ patientId, doctorId, tokenId, senderR
     try {
       await insertMessage('text', text.trim())
       setText('')
-    } catch { toast.error('Failed to send') }
-    finally { setSending(false) }
+    } catch (err) {
+      console.error('Send text error:', err)
+      toast.error(err.message || 'Failed to send message')
+    } finally { setSending(false) }
   }
 
   // ── Start recording ─────────────────────────────────────────────────────────
@@ -300,12 +320,16 @@ export default function ConsultationChat({ patientId, doctorId, tokenId, senderR
 
       setSending(true)
       try {
-        const resourceType = recordingType === 'audio' ? 'video' : 'video' // Cloudinary uses 'video' for audio
-        const { url } = await uploadToCloudinary(blob, resourceType, folder)
+        // Cloudinary uses 'video' resource type for both audio and video blobs
+        const { url } = await uploadToCloudinary(blob, 'video', folder)
         await insertMessage(recordingType, url, { duration, file_name: `${recordingType}_${Date.now()}.webm` })
         toast.success(`${recordingType === 'audio' ? 'Voice note' : 'Video'} sent!`)
-      } catch { toast.error('Upload failed') }
-      finally { setSending(false) }
+      } catch (err) {
+        console.error('Recording upload error:', err)
+        toast.error(err.message || 'Upload failed. Please try again.')
+      } finally {
+        setSending(false)
+      }
     }
 
     mediaRecorder.stop()
@@ -320,16 +344,25 @@ export default function ConsultationChat({ patientId, doctorId, tokenId, senderR
     if (!file) return
     e.target.value = ''
 
+    // Size guard
+    if (file.size > MAX_FILE_BYTES) {
+      toast.error(`File too large. Maximum size is 20 MB.`)
+      return
+    }
+
     const isImage = file.type.startsWith('image/')
     const isVideo = file.type.startsWith('video/')
     const isAudio = file.type.startsWith('audio/')
-    const resourceType = (isImage) ? 'image' : 'video'
+    const resourceType = isImage ? 'image' : 'video'
     const msgType = isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : 'document'
 
     setSending(true)
     try {
       if (msgType === 'document') {
-        // Documents: use raw upload
+        // Documents: use raw resource type
+        if (!CLOUDINARY_CLOUD || CLOUDINARY_CLOUD === 'your_cloudinary_cloud_name') {
+          throw new Error('Cloudinary is not configured. Set VITE_CLOUDINARY_CLOUD_NAME in your .env file.')
+        }
         const form = new FormData()
         form.append('file', file)
         form.append('upload_preset', UPLOAD_PRESET)
@@ -339,14 +372,24 @@ export default function ConsultationChat({ patientId, doctorId, tokenId, senderR
           { method: 'POST', body: form }
         )
         const data = await res.json()
+        if (!res.ok) {
+          throw new Error(data?.error?.message || `Upload failed (HTTP ${res.status})`)
+        }
+        if (!data.secure_url) {
+          throw new Error('Cloudinary did not return a file URL')
+        }
         await insertMessage('document', data.secure_url, { file_name: file.name })
       } else {
         const { url, duration } = await uploadToCloudinary(file, resourceType, folder)
         await insertMessage(msgType, url, { file_name: file.name, duration })
       }
       toast.success('File sent!')
-    } catch { toast.error('Upload failed') }
-    finally { setSending(false) }
+    } catch (err) {
+      console.error('File upload error:', err)
+      toast.error(err.message || 'Upload failed. Please try again.')
+    } finally {
+      setSending(false)
+    }
   }
 
   const isDoctor = senderRole === 'doctor'
