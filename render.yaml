@@ -18,8 +18,9 @@ services:
     name: digital-chikitsak-backend
     runtime: python
     rootDir: backend/chikitsak-backend
-    buildCommand: pip install -r backend/chikitsak-backend/requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120 --chdir backend/chikitsak-backend
+    pythonVersion: "3.11.9"
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     plan: free
     envVars:
       # Supabase
