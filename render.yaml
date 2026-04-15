@@ -1,16 +1,3 @@
-# =============================================================
-# Digital Chikitsak — Render.com Deployment Config
-# =============================================================
-# Deploy both backend (Web Service) and frontend (Static Site)
-# from a single render.yaml.
-#
-# Usage:
-#   1. Push this file to your GitHub repo
-#   2. Go to https://dashboard.render.com → New → Blueprint
-#   3. Connect your repo — Render reads this file automatically
-#   4. Fill in the environment variable values marked as sync: false
-# =============================================================
-
 services:
 
   # ── Backend: Flask API ──────────────────────────────────────
@@ -18,68 +5,47 @@ services:
     name: digital-chikitsak-backend
     runtime: python
     rootDir: backend/chikitsak-backend
-    pythonVersion: "3.11.9"
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     plan: free
     envVars:
-      # Supabase
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - key: SUPABASE_URL
-        sync: false          # Fill in Render dashboard
+        sync: false
       - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
-
-      # Cloudinary (use CLOUDINARY_URL — single value)
       - key: CLOUDINARY_URL
         sync: false
-
-      # JWT — generate: python -c "import secrets; print(secrets.token_hex(32))"
       - key: JWT_SECRET
         sync: false
       - key: JWT_ALG
         value: HS256
-
-      # Gemini AI (LM Studio not available on cloud)
       - key: GEMINI_API_KEY
         sync: false
-
-      # ML model path
-      - key: MODEL_PATH
-        value: models/disease_model.joblib
-
-      # Flask production settings
       - key: FLASK_ENV
         value: production
       - key: FLASK_DEBUG
         value: "False"
 
   # ── Frontend: Vite React Static Site ───────────────────────
-  - type: web
+  - type: static
     name: digital-chikitsak-frontend
-    runtime: static
     rootDir: frontend/rishu-diital-chikitsak
     buildCommand: npm install && npm run build
     staticPublishPath: dist
     plan: free
     envVars:
-      # Supabase (anon/public key — safe to expose)
       - key: VITE_SUPABASE_URL
         sync: false
       - key: VITE_SUPABASE_PUBLISHABLE_KEY
         sync: false
-
-      # Cloudinary (cloud name + unsigned preset only — no secret)
       - key: VITE_CLOUDINARY_CLOUD_NAME
         sync: false
       - key: VITE_CLOUDINARY_UPLOAD_PRESET
         value: chikitsak_unsigned
-
-      # Backend URL — set AFTER backend is deployed
-      # Format: https://digital-chikitsak-backend.onrender.com/api
       - key: VITE_API_URL
         sync: false
-
-    # SPA routing — redirect all paths to index.html
     routes:
       - type: rewrite
         source: /*
