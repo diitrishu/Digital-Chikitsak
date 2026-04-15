@@ -383,15 +383,17 @@ export default function VoiceOnboarding({ onDismiss }) {
 
               <button
                 onClick={handleGoToSymptomChecker}
-                className="text-gray-400 text-sm underline"
+                className="flex items-center justify-center gap-2 w-full border-2 border-teal-400 text-teal-600 py-3 rounded-xl font-medium hover:bg-teal-50 active:scale-95 transition mt-2"
               >
+                <span className="text-lg">📋</span>
                 {t('voice.skip', 'Skip — select symptoms manually')}
               </button>
               {onDismiss && (
                 <button
                   onClick={onDismiss}
-                  className="block mt-2 text-gray-300 text-xs underline mx-auto"
+                  className="flex items-center justify-center gap-2 w-full border-2 border-gray-200 text-gray-500 py-3 rounded-xl font-medium hover:bg-gray-50 active:scale-95 transition mt-2"
                 >
+                  <span className="text-lg">🏠</span>
                   {t('voice.goToDashboard', 'Go to Dashboard')}
                 </button>
               )}
