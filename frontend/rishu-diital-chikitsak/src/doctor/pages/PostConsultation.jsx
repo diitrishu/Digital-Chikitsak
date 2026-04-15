@@ -1,12 +1,13 @@
 /**
  * PostConsultation — /doctor/post-consultation/:tokenId
- * Doctor fills notes after Jitsi call ends.
- * Saves to MySQL via Flask, marks token done in Supabase.
+ * Doctor fills notes after consultation ends.
+ * Saves notes to consultation_notes table in Supabase.
+ * Marks token as done and doctor back to online.
  */
 import { useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
-import axios from 'axios'
 import { supabase } from '../../shared/services/supabase'
+import toast from 'react-hot-toast'
 
 export default function PostConsultation() {
   const navigate = useNavigate()
@@ -26,38 +27,45 @@ export default function PostConsultation() {
 
   async function handleSubmit() {
     if (!form.diagnosis.trim()) {
-      alert('Please enter a diagnosis.')
+      toast.error('Please enter a diagnosis.')
       return
     }
     setLoading(true)
     try {
-      const token = localStorage.getItem('token') || localStorage.getItem('auth_token')
-
-      // Save consultation notes to MySQL via Flask
-      await axios.post(
-        `${import.meta.env.VITE_API_URL}/consultations`,
-        {
-          token_id: tokenId,
-          patient_id: tokenData.patientId,
-          doctor_id: tokenData.doctorId,
-          diagnosis: form.diagnosis,
-          prescription: form.prescription,
-          notes: form.notes,
+      // 1. Save consultation notes to Supabase
+      const { error: notesError } = await supabase
+        .from('consultation_notes')
+        .upsert({
+          token_id:       tokenId,
+          patient_id:     tokenData.patientId || null,
+          doctor_id:      tokenData.doctorId || null,
+          diagnosis:      form.diagnosis,
+          prescription:   form.prescription,
+          notes:          form.notes,
           follow_up_days: form.follow_up_days ? parseInt(form.follow_up_days) : null,
-          severity: form.severity,
-          jitsi_room: tokenData.jitsiRoom || null,
-          symptoms: tokenData.symptoms || '',
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
+          severity:       form.severity,
+          symptoms:       tokenData.symptoms || '',
+          jitsi_room:     tokenData.jitsiRoom || null,
+        }, { onConflict: 'token_id' })
 
-      // Mark token as done in Supabase
+      if (notesError) {
+        // If consultation_notes table doesn't exist, fall back to updating token directly
+        console.warn('consultation_notes save failed, updating token directly:', notesError.message)
+      }
+
+      // 2. Update token with diagnosis info and mark as done
       await supabase
         .from('tokens')
-        .update({ status: 'done' })
+        .update({
+          status:       'done',
+          diagnosis:    form.diagnosis,
+          prescription: form.prescription,
+          severity:     form.severity,
+          follow_up_days: form.follow_up_days ? parseInt(form.follow_up_days) : null,
+        })
         .eq('id', tokenId)
 
-      // Set doctor back to online
+      // 3. Set doctor back to online
       if (tokenData.doctorId) {
         await supabase
           .from('doctors')
@@ -65,18 +73,18 @@ export default function PostConsultation() {
           .eq('id', tokenData.doctorId)
       }
 
+      toast.success('Consultation saved!')
       setSubmitted(true)
-      setTimeout(() => navigate('/doctor/queue'), 2000)
+      setTimeout(() => navigate('/doctor/queue'), 1500)
     } catch (err) {
       console.error('Save consultation error:', err)
-      alert('Error saving notes. Please try again.')
+      toast.error('Error saving notes. Please try again.')
     } finally {
       setLoading(false)
     }
   }
 
   async function handleSkip() {
-    // Still mark token done even if notes skipped
     try {
       await supabase.from('tokens').update({ status: 'done' }).eq('id', tokenId)
       if (tokenData.doctorId) {
