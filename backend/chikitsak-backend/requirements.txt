@@ -16,12 +16,6 @@ supabase>=2.0.0
 # Cloudinary
 cloudinary>=1.44.0
 
-# Machine Learning
-scikit-learn==1.4.2
-numpy==1.26.4
-pandas==2.2.2
-joblib==1.4.2
-
 # HTTP & Config
 requests==2.31.0
 python-dotenv==1.0.0
