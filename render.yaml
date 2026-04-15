@@ -29,8 +29,9 @@ services:
         value: "False"
 
   # ── Frontend: Vite React Static Site ───────────────────────
-  - type: static
+  - type: web
     name: digital-chikitsak-frontend
+    runtime: static
     rootDir: frontend/rishu-diital-chikitsak
     buildCommand: npm install && npm run build
     staticPublishPath: dist
