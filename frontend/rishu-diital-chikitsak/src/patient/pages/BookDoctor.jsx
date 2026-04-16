@@ -33,6 +33,34 @@ const BookDoctor = () => {
   const [createdConsultation, setCreatedConsultation] = useState(null);
   const [doctors, setDoctors] = useState([]);
   const [loadingDoctors, setLoadingDoctors] = useState(true);
+  const [patientUUID, setPatientUUID] = useState(null);
+
+  // Resolve the patient's UUID from app_patients (backend needs UUID, not phone)
+  useEffect(() => {
+    async function resolvePatient() {
+      const user = getCurrentUser();
+      if (!user?.phone) return;
+      const { data } = await supabase
+        .from('app_patients')
+        .select('id')
+        .eq('account_phone', user.phone)
+        .eq('relation', 'Self')
+        .maybeSingle();
+      if (data?.id) {
+        setPatientUUID(data.id);
+      } else {
+        // Auto-create Self patient via backend (it handles this in get_self_patient)
+        // Fallback: try to create via Supabase directly
+        const { data: created } = await supabase
+          .from('app_patients')
+          .upsert({ account_phone: user.phone, name: user.name || user.phone, relation: 'Self', patient_phone: user.phone }, { onConflict: 'account_phone,relation' })
+          .select('id')
+          .single();
+        if (created?.id) setPatientUUID(created.id);
+      }
+    }
+    resolvePatient();
+  }, []);
 
   useEffect(() => {
     async function fetchDoctors() {
@@ -79,9 +107,14 @@ const BookDoctor = () => {
     setLoading(true);
     setError(null);
     try {
-      const user = getCurrentUser();
+      const pid = patientUUID;
+      if (!pid) {
+        setError('Could not resolve patient profile. Please log out and log in again.');
+        setLoading(false);
+        return;
+      }
       const consultation = await createConsultation({
-        patient_id: user?.phone || 'demo-patient-id',
+        patient_id: pid,
         doctor_id: selectedDoctor.id,
         symptoms,
       });
