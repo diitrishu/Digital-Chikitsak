@@ -371,7 +371,7 @@ export default function DoctorOnboarding() {
                     <div className="flex justify-between"><span className="text-gray-500">Consult Time</span><span className="font-medium">{form.avg_consult_time} min/patient</span></div>
                   </div>
                   <button
-                    onClick={() => navigate('/doctor')}
+                    onClick={() => navigate(-1)}
                     className="w-full bg-blue-600 text-white font-semibold py-3.5 rounded-xl hover:bg-blue-700 transition-colors"
                   >
                     Go to Dashboard →

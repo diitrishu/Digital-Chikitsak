@@ -296,7 +296,7 @@ const BookDoctor = () => {
             )}
             <div className="flex gap-4 mt-8">
               <button onClick={resetBooking} className="flex-1 bg-teal-500 hover:bg-teal-600 text-white py-3 rounded-lg font-medium">Book Another</button>
-              <button onClick={() => navigate('/patient')} className="flex-1 border border-gray-300 text-gray-700 py-3 rounded-lg font-medium">Back to Dashboard</button>
+              <button onClick={() => navigate(-1)} className="flex-1 border border-gray-300 text-gray-700 py-3 rounded-lg font-medium">Back</button>
             </div>
           </div>
         )}

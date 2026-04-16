@@ -165,7 +165,7 @@ export default function PatientConsultation() {
             <div className="font-semibold text-lg mb-2">{t('videoConsult.error')}</div>
             <div className="mb-4">{error}</div>
             <div className="space-y-2">
-              <button onClick={() => navigate('/patient')} className="w-full px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600">
+              <button onClick={() => navigate(-1)} className="w-full px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600">
                 {t('videoConsult.backToDashboard')}
               </button>
               <button onClick={() => navigate('/patient/book-doctor')} className="w-full px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">
