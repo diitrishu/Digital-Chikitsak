@@ -623,15 +623,21 @@ def chat():
     GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
     if not GEMINI_KEY:
         return jsonify({"reply": "AI chat is currently unavailable.", "source": "fallback"})
-    try:
-        url  = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-        resp = requests.post(url, headers={"x-goog-api-key": GEMINI_KEY, "Content-Type": "application/json"},
-                             json={"contents":[{"parts":[{"text":message}]}],"generationConfig":{"maxOutputTokens":300}}, timeout=10)
-        resp.raise_for_status()
-        reply = clean_text(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
-        return jsonify({"reply": reply, "source": "gemini"})
-    except Exception as e:
-        return jsonify({"reply": "AI chat is temporarily unavailable.", "source": "error"})
+    import time as _time
+    gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+    for attempt in range(2):
+        try:
+            resp = requests.post(gemini_url, headers={"x-goog-api-key": GEMINI_KEY, "Content-Type": "application/json"},
+                                 json={"contents":[{"parts":[{"text":message}]}],"generationConfig":{"maxOutputTokens":300}}, timeout=10)
+            if resp.status_code == 429 and attempt == 0:
+                _time.sleep(3)
+                continue
+            resp.raise_for_status()
+            reply = clean_text(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+            return jsonify({"reply": reply, "source": "gemini"})
+        except Exception as e:
+            logger.error(f"Gemini chat error (attempt {attempt+1}): {e}")
+    return jsonify({"reply": "AI chat is temporarily unavailable.", "source": "error"})
 
 @app.route("/api/ai/symptom", methods=["POST"])
 @require_auth
@@ -854,25 +860,33 @@ def chat_symptom():
     except Exception:
         pass
 
-    # Gemini fallback
+    # Gemini fallback (with one retry on 429 rate-limit)
     if not reply and GEMINI_KEY:
-        try:
-            url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-            resp = requests.post(
-                url,
-                headers={"x-goog-api-key": GEMINI_KEY, "Content-Type": "application/json"},
-                json={
-                    "system_instruction": {"parts": [{"text": system}]},
-                    "contents": gemini_contents,
-                    "generationConfig": {"temperature": 0.4, "maxOutputTokens": 400}
-                },
-                timeout=15
-            )
-            resp.raise_for_status()
-            reply = clean_text(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
-            source = "gemini"
-        except Exception as e:
-            logger.error(f"Gemini chat-symptom error: {e}")
+        import time as _time
+        gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        gemini_payload = {
+            "system_instruction": {"parts": [{"text": system}]},
+            "contents": gemini_contents,
+            "generationConfig": {"temperature": 0.4, "maxOutputTokens": 400}
+        }
+        for attempt in range(2):
+            try:
+                resp = requests.post(
+                    gemini_url,
+                    headers={"x-goog-api-key": GEMINI_KEY, "Content-Type": "application/json"},
+                    json=gemini_payload,
+                    timeout=15
+                )
+                if resp.status_code == 429 and attempt == 0:
+                    logger.warning("Gemini 429 rate-limit, retrying after 3s...")
+                    _time.sleep(3)
+                    continue
+                resp.raise_for_status()
+                reply = clean_text(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+                source = "gemini"
+                break
+            except Exception as e:
+                logger.error(f"Gemini chat-symptom error (attempt {attempt+1}): {e}")
 
     if not reply:
         reply = "Abhi AI service available nahi hai. Kripya thodi der baad try karein ya doctor se milein."
