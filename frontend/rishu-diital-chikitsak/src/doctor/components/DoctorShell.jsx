@@ -3,10 +3,10 @@
  * Mirrors AppShell but with doctor-specific nav
  */
 import React, { useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Video, FileText,
-  Settings, LogOut, Menu, X, Stethoscope, Bell, User, MessageCircle
+  Settings, LogOut, Menu, X, Stethoscope, Bell, User, MessageCircle, ArrowLeft
 } from 'lucide-react'
 import { getCurrentUser, logout } from '../../shared/services/auth'
 import toast from 'react-hot-toast'
@@ -22,8 +22,12 @@ const NAV = [
 
 export default function DoctorShell({ children, title = '' }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const user = getCurrentUser()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  const isDashboard = location.pathname === '/doctor'
+  const canGoBack = !isDashboard && (window.history.state?.idx ?? 0) > 0
 
   const handleLogout = () => {
     logout()
@@ -97,6 +101,15 @@ export default function DoctorShell({ children, title = '' }) {
             <button onClick={() => setMobileMenuOpen(true)} className="lg:hidden p-2 rounded-lg hover:bg-gray-100">
               <Menu size={20} />
             </button>
+            {canGoBack && (
+              <button
+                onClick={() => navigate(-1)}
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                aria-label="Go back"
+              >
+                <ArrowLeft size={20} />
+              </button>
+            )}
             <h1 className="font-semibold text-gray-800 text-base">{title}</h1>
           </div>
           <div className="flex items-center gap-2">

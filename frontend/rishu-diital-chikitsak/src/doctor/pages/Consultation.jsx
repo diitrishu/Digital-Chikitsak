@@ -53,7 +53,7 @@ export default function DoctorConsultation() {
       <div className="flex flex-1">
         <DoctorSidebar />
         <main className="flex-1 p-6 space-y-6">
-          <BackButton to="/doctor" />
+          <BackButton />
 
           <h1 className="text-2xl font-semibold mb-4">Consultation with Patient</h1>
 

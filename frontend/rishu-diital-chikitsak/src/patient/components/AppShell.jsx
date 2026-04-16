@@ -4,10 +4,10 @@
  * Mobile: top header + bottom nav
  */
 import React, { useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Stethoscope, Pill, FileText, Users,
-  BookOpen, Settings, LogOut, Menu, X, AlertTriangle, Bell, MessageCircle
+  BookOpen, Settings, LogOut, Menu, X, AlertTriangle, Bell, MessageCircle, ArrowLeft
 } from 'lucide-react'
 import { useLanguage } from '../../shared/contexts/LanguageContext'
 import { getCurrentUser, logout } from '../../shared/services/auth'
@@ -28,9 +28,16 @@ const NAV = [
 export default function AppShell({ children, title = '' }) {
   const { t } = useLanguage()
   const navigate = useNavigate()
+  const location = useLocation()
   const user = getCurrentUser()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showEmergency, setShowEmergency] = useState(false)
+
+  // Show back button on all pages except the patient dashboard itself
+  const isDashboard = location.pathname === '/patient'
+  const canGoBack = !isDashboard && (window.history.state?.idx ?? 0) > 0
+
+  const handleBack = () => navigate(-1)
 
   const handleLogout = () => {
     logout()
@@ -129,6 +136,15 @@ export default function AppShell({ children, title = '' }) {
             >
               <Menu size={20} />
             </button>
+            {canGoBack && (
+              <button
+                onClick={handleBack}
+                className="p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                aria-label="Go back"
+              >
+                <ArrowLeft size={20} />
+              </button>
+            )}
             <h1 className="font-semibold text-gray-800 text-base">{title}</h1>
           </div>
           <div className="flex items-center gap-2">
