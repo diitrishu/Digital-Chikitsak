@@ -698,6 +698,209 @@ Return ONLY JSON: {{"summary":"...","advice":"...","see_doctor":true/false}}"""
         print(f"Gemini voice-analyze error: {e}")
         return jsonify({"summary":"","advice":"","see_doctor":True})
 
+# ── AI Conversation Symptom Chat ─────────────────────────────────────────────
+
+CHAT_SYSTEM_PROMPT = """You are Chikitsak AI — a friendly, trusted health assistant for rural India (Jharkhand region).
+
+LANGUAGE RULES (CRITICAL):
+- Detect the language the patient is using: Hindi, Hinglish, Khortha, Bengali, Nagpuri, Santali, English
+- ALWAYS reply in the EXACT same language and script the patient used
+- If patient writes in Hindi/Devanagari → reply in Hindi/Devanagari
+- If patient writes in Hinglish (Roman Hindi) → reply in Hinglish
+- If patient writes in Bengali → reply in Bengali
+- If patient writes in English → reply in English
+- Match their vocabulary level — use simple words a village person understands
+- Use warm, caring tone like a trusted family doctor (not clinical/cold)
+
+RESPONSE FORMAT (always use this structure):
+🔍 *Kya ho sakta hai:* [1-2 lines about likely cause in patient's language]
+🏠 *Ghar pe kya karein:* [2-3 specific home remedies using locally available items]
+💊 *Agar zaroorat ho:* [OTC medicine suggestion ONLY if clearly needed — see rules below]
+🏥 *Doctor kab jayein:* [specific warning signs that need doctor visit]
+
+MEDICINE RULES:
+- After 2+ patient messages, you MAY suggest basic OTC medicines available at any chemist
+- ALLOWED: Paracetamol 500mg (bukhar/dard), ORS (dast/ulti), Antacid like Gelusil (pet dard), Cetirizine 10mg (allergy/kharish), Betadine (ghav), Vicks/steam (sardi/khansi)
+- NEVER suggest: Antibiotics, steroids, blood pressure medicines, diabetes medicines, injections, any Schedule H drug
+- ALWAYS add after medicine: "(Chemist se milega, doctor se confirm karein)"
+- If less than 2 messages exchanged, skip the 💊 section entirely
+
+EMERGENCY DETECTION:
+- If patient mentions: chest pain, seene mein dard, heart attack, stroke, unconscious, behoshi, severe bleeding, zyaada khoon, can't breathe, sans nahi, seizure, fitting, paralysis
+- IMMEDIATELY respond with: 🚨 EMERGENCY — Turant 108 call karein! (Then brief first aid)
+- Set is_emergency: true in response
+
+STRICT RULES:
+- Never prescribe Schedule H/H1 drugs (antibiotics, steroids, etc.)
+- Never diagnose definitively — always say "ho sakta hai" or "lagta hai"
+- Always recommend doctor if symptoms are severe or persist > 3 days
+- Keep response concise — max 150 words
+- No medical jargon — use words a farmer/village person understands
+
+CONTEXT: Patient is from rural Jharkhand. They may have limited access to doctors. Your advice should be practical and actionable with locally available resources."""
+
+FUZZY_SYMPTOM_KEYWORDS = {
+    "fever":            ["fever","bukhar","bukhaar","tapp","garmi","temperature","tap","bokhaar","jwar"],
+    "headache":         ["headache","sar dard","sir dard","sar","sir","head","matha","mathaa","migraine"],
+    "cough":            ["cough","khansi","khaansi","khaasi","khas","khanshi","khaanshi"],
+    "stomach_pain":     ["stomach","pet","pait","peth","abdomen","belly","tummy","pet dard","pait dard"],
+    "diarrhea":         ["diarrhea","dast","daast","loose motion","loose","potty","latrine"],
+    "vomiting":         ["vomit","ulti","ultee","qay","utti","throwing up"],
+    "nausea":           ["nausea","ji machlana","matli","ulti jaisi","sick"],
+    "fatigue":          ["tired","thakan","kamzori","weak","thaka","exhausted","bimaar","weakness"],
+    "dizziness":        ["dizzy","chakkar","chakker","ghoomna","vertigo","spinning"],
+    "shortness_breath": ["breath","saans","sans","breathless","dam","ghutna","breathing"],
+    "sore_throat":      ["throat","gala","gale","sore throat","gala dard","gale mein"],
+    "runny_nose":       ["nose","naak","nazla","sneezing","chheenk","runny","nasal"],
+    "joint_pain":       ["joint","jod","jodo","joints","jod dard","arthritis"],
+    "back_pain":        ["back","kamar","peeth","spine","kamar dard","peeth dard"],
+    "muscle_pain":      ["muscle","body pain","badan","body dard","maans","body ache"],
+    "rash":             ["rash","daane","skin","twacha","eruption","chechak"],
+    "itching":          ["itch","kharish","khujli","scratching","khujlee"],
+    "chest_pain":       ["chest","seena","seene","sine","heart","dil","chest pain","seene mein dard"],
+    "swelling":         ["swelling","sujan","soojan","swollen","swell"],
+    "wounds":           ["wound","ghav","chot","cut","injury","zakhm","bleeding","khoon"],
+}
+
+def fuzzy_extract_symptoms(text: str) -> list:
+    """Extract symptoms using fuzzy word-level matching."""
+    lower = text.lower()
+    words = set(re.findall(r'\w+', lower))
+    detected = []
+    for symptom, keywords in FUZZY_SYMPTOM_KEYWORDS.items():
+        for kw in keywords:
+            kw_words = set(kw.split())
+            # Match if ALL words of keyword appear in text
+            if kw_words.issubset(words) or kw in lower:
+                detected.append(symptom)
+                break
+    return list(set(detected))
+
+def detect_emergency(text: str) -> bool:
+    emergency_phrases = [
+        "chest pain","seene mein dard","sine mein dard","heart attack","dil ka daura",
+        "stroke","unconscious","behoshi","hosh nahi","severe bleeding","zyaada khoon",
+        "cant breathe","sans nahi","saans nahi","seizure","fitting","paralysis","laqwa"
+    ]
+    lower = text.lower()
+    return any(phrase in lower for phrase in emergency_phrases)
+
+@app.route("/api/ai/chat-symptom", methods=["POST"])
+@require_auth
+@limiter.limit("100 per hour")
+def chat_symptom():
+    """
+    Multilingual conversational symptom checker.
+    Detects language automatically, replies in same language.
+    Suggests OTC medicines after 2+ exchanges.
+    Emergency detection with 108 routing.
+    """
+    data = request.get_json(force=True) or {}
+    message  = data.get("message", "").strip()
+    history  = data.get("history", [])   # [{role, content}, ...]
+    patient_id = data.get("patient_id")
+
+    if not message:
+        return jsonify({"error": "message required"}), 400
+
+    # Emergency check first
+    is_emergency = detect_emergency(message)
+
+    # Fuzzy symptom extraction
+    symptoms_detected = fuzzy_extract_symptoms(message)
+    # Also check history for cumulative symptoms
+    for h in history:
+        if h.get("role") == "user":
+            symptoms_detected = list(set(symptoms_detected + fuzzy_extract_symptoms(h.get("content", ""))))
+
+    exchange_count = len([h for h in history if h.get("role") == "user"])
+
+    GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+
+    # Build conversation for Gemini
+    gemini_contents = []
+    for h in history[-6:]:  # last 6 messages for context
+        role = "user" if h.get("role") == "user" else "model"
+        gemini_contents.append({"role": role, "parts": [{"text": h.get("content", "")}]})
+    gemini_contents.append({"role": "user", "parts": [{"text": message}]})
+
+    # Add context about exchange count to system prompt
+    system = CHAT_SYSTEM_PROMPT
+    if exchange_count < 2:
+        system += "\n\nNOTE: This is early in conversation (less than 2 exchanges). Do NOT suggest any medicines yet. Focus on understanding symptoms and giving home remedies only."
+    else:
+        system += f"\n\nNOTE: Patient has sent {exchange_count + 1} messages. You may now suggest basic OTC medicines if clearly needed."
+
+    if symptoms_detected:
+        system += f"\n\nDetected symptoms so far: {', '.join(symptoms_detected)}"
+
+    reply = ""
+    source = "fallback"
+
+    # Try LM Studio first (local, fast)
+    try:
+        lm_messages = [{"role": "system", "content": system}]
+        for h in history[-6:]:
+            lm_messages.append({"role": h.get("role", "user"), "content": h.get("content", "")})
+        lm_messages.append({"role": "user", "content": message})
+        resp = requests.post(
+            LMSTUDIO_URL,
+            json={"model": DEFAULT_MODEL, "messages": lm_messages, "max_tokens": 400, "temperature": 0.4},
+            timeout=5
+        )
+        resp.raise_for_status()
+        reply = clean_text(resp.json()["choices"][0]["message"]["content"])
+        source = "lmstudio"
+    except Exception:
+        pass
+
+    # Gemini fallback
+    if not reply and GEMINI_KEY:
+        try:
+            url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+            resp = requests.post(
+                url,
+                headers={"x-goog-api-key": GEMINI_KEY, "Content-Type": "application/json"},
+                json={
+                    "system_instruction": {"parts": [{"text": system}]},
+                    "contents": gemini_contents,
+                    "generationConfig": {"temperature": 0.4, "maxOutputTokens": 400}
+                },
+                timeout=15
+            )
+            resp.raise_for_status()
+            reply = clean_text(resp.json()["candidates"][0]["content"]["parts"][0]["text"])
+            source = "gemini"
+        except Exception as e:
+            logger.error(f"Gemini chat-symptom error: {e}")
+
+    if not reply:
+        reply = "Abhi AI service available nahi hai. Kripya thodi der baad try karein ya doctor se milein."
+        source = "fallback"
+
+    # Save chat to Supabase if patient_id provided
+    if patient_id:
+        try:
+            safe_query(sb().table("ai_chat_sessions").insert({
+                "patient_id": patient_id,
+                "user_message": message,
+                "ai_reply": reply,
+                "symptoms_detected": symptoms_detected,
+                "is_emergency": is_emergency,
+                "exchange_count": exchange_count + 1,
+                "source": source,
+            }))
+        except Exception as e:
+            logger.warning(f"Failed to save chat session: {e}")
+
+    return jsonify({
+        "reply": reply,
+        "symptoms_detected": symptoms_detected,
+        "is_emergency": is_emergency,
+        "exchange_count": exchange_count + 1,
+        "source": source,
+    })
+
 # ── run ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
