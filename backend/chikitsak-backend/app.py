@@ -346,6 +346,7 @@ def create_consultation():
 @app.route("/api/consultations/<cid>", methods=["GET"])
 @require_auth
 def get_consultation(cid):
+    user = request.user
     try:
         res = sb().table("consultations").select("*").eq("id", cid).maybe_single().execute()
     except Exception as e:
@@ -356,7 +357,20 @@ def get_consultation(cid):
         return jsonify({"error": str(res.error)}), 500
     if not res.data:
         return jsonify({"error": "not found"}), 404
-    return jsonify(res.data)
+
+    consultation = res.data
+
+    # IDOR Check: Ensure user is either the assigned doctor or the owning patient
+    if user["role"] == "doctor":
+        if consultation.get("doctor_phone") != user["phone"]:
+            return jsonify({"error": "Unauthorized access to consultation"}), 403
+    elif user["role"] == "patient":
+        # Get all patients linked to this user's account to verify ownership
+        patient_ids = [p["id"] for p in safe_query(sb().table("app_patients").select("id").eq("account_phone", user["phone"]))]
+        if consultation.get("patient_id") not in patient_ids:
+             return jsonify({"error": "Unauthorized access to consultation"}), 403
+
+    return jsonify(consultation)
 
 # ── health records (Cloudinary) ───────────────────────────────────────────────
 
@@ -462,7 +476,49 @@ def delete_health_record(record_id):
     patient = get_self_patient(request.user["phone"])
     if not patient:
         return jsonify({"error": "Patient not found"}), 404
+
+    # Get record details first to get cloudinary public_id
+    res = sb().table("health_records").select("file_url").eq("id", record_id).eq("patient_id", patient["id"]).maybe_single().execute()
+    if not res.data:
+        return jsonify({"error": "Record not found or unauthorized"}), 404
+
+    file_url = res.data.get("file_url")
+
+    # Delete from database
     sb().table("health_records").delete().eq("id", record_id).eq("patient_id", patient["id"]).execute()
+
+    # Extract public_id and delete from Cloudinary
+    if file_url:
+        try:
+            from cloudinary_client import delete_file
+            # Cloudinary URLs look like: https://res.cloudinary.com/.../upload/v123456789/folder/subfolder/filename.ext
+            # Extract public_id: everything after upload/(v.../)? up to the extension
+            import urllib.parse
+            path = urllib.parse.urlparse(file_url).path
+            parts = path.split('/upload/')
+            if len(parts) > 1:
+                after_upload = parts[1]
+                # remove v123456789/ if present
+                if re.match(r'^v\d+/', after_upload):
+                    after_upload = after_upload.split('/', 1)[1]
+
+                # remove extension
+                public_id = after_upload.rsplit('.', 1)[0]
+
+                # Health records can be PDFs (raw) or images
+                # Since we don't know the resource_type used on upload (auto),
+                # we'll just try to delete it. Usually default is image.
+                # If it's a PDF, we might need resource_type="raw" or "image"
+                try:
+                    delete_file(public_id, resource_type="image")
+                except Exception:
+                    try:
+                        delete_file(public_id, resource_type="raw")
+                    except Exception as e:
+                        logger.error(f"Failed to delete from Cloudinary: {e}")
+        except Exception as e:
+            logger.error(f"Error handling Cloudinary deletion: {e}")
+
     return jsonify({"message": "Record deleted successfully"})
 
 @app.route("/api/health-records/<record_id>/download", methods=["GET"])
@@ -607,6 +663,7 @@ def get_hospitals():
 
 @app.route("/api/chat", methods=["POST"])
 @require_auth
+@limiter.limit("50 per hour")
 def chat():
     data    = request.json or {}
     message = data.get("message", "")
