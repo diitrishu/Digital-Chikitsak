@@ -18,3 +18,5 @@ __pycache__/
 
 # Flask uploads
 uploads/
+testenv/
+testenv/
