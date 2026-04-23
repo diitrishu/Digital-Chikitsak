@@ -234,10 +234,10 @@ export default function SmartConsultation() {
     }
 
     const rec = new SR()
-    rec.continuous = false
+    rec.continuous = true
     rec.interimResults = true
     rec.lang = SPEECH_LANGS[speechLangIdx]
-    rec.maxAlternatives = 3
+    rec.maxAlternatives = 1
 
     let finalTranscript = ''
     let interimTranscript = ''
@@ -274,6 +274,8 @@ export default function SmartConsultation() {
       setIsListening(false)
       if (finalTranscript.trim()) {
         setInput(finalTranscript.trim())
+        // Auto-send after a small delay to allow state update
+        setTimeout(() => sendMessage(finalTranscript.trim()), 500)
       }
     }
 

@@ -134,7 +134,7 @@ export default function VoiceOnboarding({ onDismiss }) {
   const transcriptRef = useRef('')
   const hasRetried = useRef(false)
 
-  const langMap = { en: 'en-IN', hi: 'hi-IN', pa: 'pa-IN' }
+  const langMap = { en: 'en-US', hi: 'hi-IN', pa: 'pa-IN' } // Updated en-IN to en-US for better support in some browsers
 
   function startListening() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
