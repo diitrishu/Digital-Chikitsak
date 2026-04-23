@@ -155,19 +155,21 @@ export default function VoiceOnboarding({ onDismiss }) {
     }
 
     recognition.onresult = (event) => {
-      let finalText = ''
+      // Rebuild full transcript from ALL results (not just new ones)
+      // This prevents duplication when browser re-fires overlapping results
+      let fullFinal = ''
       let interim = ''
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      for (let i = 0; i < event.results.length; i++) {
         if (event.results[i].isFinal) {
-          finalText += event.results[i][0].transcript + ' '
+          fullFinal += event.results[i][0].transcript + ' '
         } else {
           interim += event.results[i][0].transcript
         }
       }
       if (interim) setInterimText(interim)
-      if (finalText) {
-        transcriptRef.current += finalText
-        setTranscript(transcriptRef.current)
+      if (fullFinal) {
+        transcriptRef.current = fullFinal  // replace, not append
+        setTranscript(fullFinal.trim())
         setInterimText('')
         if (timeoutRef.current) clearTimeout(timeoutRef.current)
         timeoutRef.current = setTimeout(() => recognition.stop(), 5000)

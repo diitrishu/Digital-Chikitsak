@@ -196,7 +196,7 @@ export default function SmartConsultation() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
 
-  // Resolve patient
+  // Resolve patient from 'patients' table (used by tokens/queue system)
   useEffect(() => {
     async function resolve() {
       const user = JSON.parse(localStorage.getItem('user') || 'null')
@@ -239,23 +239,21 @@ export default function SmartConsultation() {
     rec.lang = SPEECH_LANGS[speechLangIdx]
     rec.maxAlternatives = 3
 
-    let finalTranscript = ''
-    let interimTranscript = ''
-
     rec.onstart = () => setIsListening(true)
 
     rec.onresult = (e) => {
-      finalTranscript = ''
-      interimTranscript = ''
-      for (let i = e.resultIndex; i < e.results.length; i++) {
+      // Rebuild from ALL results to prevent duplication on re-fired events
+      let fullFinal = ''
+      let interimTranscript = ''
+      for (let i = 0; i < e.results.length; i++) {
         if (e.results[i].isFinal) {
-          finalTranscript += e.results[i][0].transcript
+          fullFinal += e.results[i][0].transcript
         } else {
           interimTranscript += e.results[i][0].transcript
         }
       }
       if (interimTranscript) setInput(interimTranscript)
-      if (finalTranscript) setInput(prev => prev ? `${prev} ${finalTranscript}` : finalTranscript)
+      if (fullFinal) setInput(fullFinal.trim())
     }
 
     rec.onerror = (e) => {
@@ -272,9 +270,6 @@ export default function SmartConsultation() {
 
     rec.onend = () => {
       setIsListening(false)
-      if (finalTranscript.trim()) {
-        setInput(finalTranscript.trim())
-      }
     }
 
     recognitionRef.current = rec
