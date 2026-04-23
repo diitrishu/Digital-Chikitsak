@@ -761,6 +761,55 @@ Return ONLY JSON: {{"summary":"...","advice":"...","see_doctor":true/false}}"""
         print(f"Gemini voice-analyze error: {e}")
         return jsonify({"summary":"","advice":"","see_doctor":True})
 
+@app.route("/api/ai/transcribe", methods=["POST"])
+@require_auth
+@limiter.limit("60 per hour")
+def transcribe_audio():
+    """
+    Transcribe audio using Groq Whisper large-v3-turbo.
+    Accepts multipart/form-data with an 'audio' file field.
+    Returns: { "transcript": "...", "language": "hi" }
+    """
+    GROQ_KEY = os.getenv("GROQ_API_KEY", "")
+    if not GROQ_KEY:
+        return jsonify({"error": "Transcription service not configured"}), 503
+
+    if "audio" not in request.files:
+        return jsonify({"error": "audio file required"}), 400
+
+    audio_file = request.files["audio"]
+    lang_hint  = request.form.get("language", None)  # optional: 'hi', 'en', etc.
+
+    try:
+        files = {
+            "file": (audio_file.filename or "audio.webm", audio_file.stream, audio_file.mimetype or "audio/webm"),
+        }
+        data = {
+            "model": "whisper-large-v3-turbo",
+            "response_format": "json",
+            "temperature": 0,
+        }
+        if lang_hint:
+            data["language"] = lang_hint
+
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {GROQ_KEY}"},
+            files=files,
+            data=data,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        transcript = result.get("text", "").strip()
+        detected_lang = result.get("language", "")
+        logger.info(f"Whisper transcribed ({detected_lang}): {transcript[:80]}")
+        return jsonify({"transcript": transcript, "language": detected_lang})
+    except Exception as e:
+        logger.error(f"Groq transcribe error: {e}")
+        return jsonify({"error": "Transcription failed", "detail": str(e)}), 500
+
+
 # ── AI Conversation Symptom Chat ─────────────────────────────────────────────
 
 CHAT_SYSTEM_PROMPT = """You are Chikitsak AI — a friendly, trusted health assistant for rural India (Jharkhand region).

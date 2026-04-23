@@ -224,62 +224,71 @@ export default function SmartConsultation() {
     }])
   }, [])
 
-  // Speech recognition setup
-  const startListening = useCallback(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) { toast.error('Voice not supported on this browser'); return }
+  // Whisper-based recording
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
+  const recordingTimerRef = useRef(null)
 
-    if (recognitionRef.current) {
-      try { recognitionRef.current.abort() } catch {}
-    }
+  const startListening = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      audioChunksRef.current = []
 
-    const rec = new SR()
-    rec.continuous = false
-    rec.interimResults = true
-    rec.lang = SPEECH_LANGS[speechLangIdx]
-    rec.maxAlternatives = 3
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : 'audio/mp4'
 
-    rec.onstart = () => setIsListening(true)
+      const recorder = new MediaRecorder(stream, { mimeType })
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(audioChunksRef.current, { type: mimeType })
+        if (blob.size < 1000) { setIsListening(false); return }
 
-    rec.onresult = (e) => {
-      // Rebuild from ALL results to prevent duplication on re-fired events
-      let fullFinal = ''
-      let interimTranscript = ''
-      for (let i = 0; i < e.results.length; i++) {
-        if (e.results[i].isFinal) {
-          fullFinal += e.results[i][0].transcript
-        } else {
-          interimTranscript += e.results[i][0].transcript
+        // Send to Whisper
+        try {
+          const token = localStorage.getItem('token') || ''
+          const ext = mimeType.includes('mp4') ? 'mp4' : 'webm'
+          const formData = new FormData()
+          formData.append('audio', blob, `recording.${ext}`)
+          const res = await fetch(`${API_URL}/ai/transcribe`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+          })
+          const data = await res.json()
+          const text = data.transcript?.trim() || ''
+          if (text) setInput(text)
+        } catch (err) {
+          toast.error('Voice transcription failed. Please type instead.')
         }
+        setIsListening(false)
       }
-      if (interimTranscript) setInput(interimTranscript)
-      if (fullFinal) setInput(fullFinal.trim())
-    }
 
-    rec.onerror = (e) => {
-      setIsListening(false)
-      if (e.error === 'not-allowed') {
+      mediaRecorderRef.current = recorder
+      recorder.start(250)
+      setIsListening(true)
+      toast('Sun raha hoon... 🎤 Bolne ke baad mic dobara tap karein', { duration: 3000 })
+
+      // Auto-stop after 30s
+      recordingTimerRef.current = setTimeout(() => stopListening(), 30000)
+    } catch (err) {
+      if (err.name === 'NotAllowedError') {
         toast.error('Microphone permission denied')
-      } else if (e.error === 'no-speech') {
-        // Try next language
-        const nextIdx = (speechLangIdx + 1) % SPEECH_LANGS.length
-        setSpeechLangIdx(nextIdx)
-        toast('Koi awaaz nahi mili. Dobara try karein.', { icon: '🎤' })
+      } else {
+        toast.error('Could not access microphone')
       }
     }
-
-    rec.onend = () => {
-      setIsListening(false)
-    }
-
-    recognitionRef.current = rec
-    rec.start()
-    toast('Sun raha hoon... 🎤', { duration: 2000 })
-  }, [speechLangIdx])
+  }, [])
 
   const stopListening = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop()
+    if (recordingTimerRef.current) clearTimeout(recordingTimerRef.current)
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
     }
     setIsListening(false)
   }, [])

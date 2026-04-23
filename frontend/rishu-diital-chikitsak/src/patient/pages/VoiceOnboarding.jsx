@@ -129,85 +129,85 @@ export default function VoiceOnboarding({ onDismiss }) {
   const [analysisResult, setAnalysisResult] = useState(null)
   const [micUnsupported, setMicUnsupported] = useState(false)
 
-  const recognitionRef = useRef(null)
-  const timeoutRef = useRef(null)
-  const transcriptRef = useRef('')
-  const hasRetried = useRef(false)
+  const mediaRecorderRef = useRef(null)
+  const audioChunksRef = useRef([])
+  const recordingTimerRef = useRef(null)
 
-  const langMap = { en: 'en-IN', hi: 'hi-IN', pa: 'pa-IN' }
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+  const langMap = { en: 'en', hi: 'hi', pa: 'pa' }
 
-  function startListening() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) {
-      setMicUnsupported(true)
-      return
-    }
+  async function startListening() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      audioChunksRef.current = []
 
-    const recognition = new SR()
-    recognition.lang = langMap[lang] || 'hi-IN'
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.maxAlternatives = 1
+      // Pick best supported format
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : 'audio/mp4'
 
-    recognition.onstart = () => {
+      const recorder = new MediaRecorder(stream, { mimeType })
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(audioChunksRef.current, { type: mimeType })
+        if (blob.size < 1000) { setPhase('idle'); return }
+        await sendToWhisper(blob, mimeType)
+      }
+
+      mediaRecorderRef.current = recorder
+      recorder.start(250) // collect chunks every 250ms
       setIsListening(true)
       setPhase('listening')
-    }
 
-    recognition.onresult = (event) => {
-      // Rebuild full transcript from ALL results (not just new ones)
-      // This prevents duplication when browser re-fires overlapping results
-      let fullFinal = ''
-      let interim = ''
-      for (let i = 0; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          fullFinal += event.results[i][0].transcript + ' '
-        } else {
-          interim += event.results[i][0].transcript
-        }
-      }
-      if (interim) setInterimText(interim)
-      if (fullFinal) {
-        transcriptRef.current = fullFinal  // replace, not append
-        setTranscript(fullFinal.trim())
-        setInterimText('')
-        if (timeoutRef.current) clearTimeout(timeoutRef.current)
-        timeoutRef.current = setTimeout(() => recognition.stop(), 5000)
-      }
-    }
-
-    recognition.onerror = (event) => {
-      if (event.error === 'not-allowed' || event.error === 'permission-denied') {
+      // Auto-stop after 30 seconds
+      recordingTimerRef.current = setTimeout(() => stopListening(), 30000)
+    } catch (err) {
+      if (err.name === 'NotAllowedError') {
         setMicUnsupported(true)
         setPhase('mic-denied')
-      } else if (event.error === 'no-speech') {
-        if (!hasRetried.current) {
-          hasRetried.current = true
-          setTimeout(startListening, 500)
-        } else {
-          setPhase('fallback')
-        }
+      } else {
+        setMicUnsupported(true)
       }
-      setIsListening(false)
     }
+  }
 
-    recognition.onend = () => {
-      setIsListening(false)
-      const text = transcriptRef.current.trim()
-      if (text.length > 3) {
+  function stopListening() {
+    if (recordingTimerRef.current) clearTimeout(recordingTimerRef.current)
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    setIsListening(false)
+  }
+
+  async function sendToWhisper(blob, mimeType) {
+    setPhase('processing')
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || ''
+      const ext = mimeType.includes('mp4') ? 'mp4' : 'webm'
+      const formData = new FormData()
+      formData.append('audio', blob, `recording.${ext}`)
+      formData.append('language', langMap[lang] || 'hi')
+
+      const resp = await axios.post(`${API_URL}/ai/transcribe`, formData, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 30000,
+      })
+      const text = resp.data.transcript?.trim() || ''
+      if (text.length > 2) {
+        setTranscript(text)
         processTranscript(text)
       } else {
         setPhase('idle')
       }
+    } catch (err) {
+      console.error('Whisper transcription failed:', err)
+      setPhase('idle')
     }
-
-    recognitionRef.current = recognition
-    recognition.start()
-  }
-
-  function stopListening() {
-    if (recognitionRef.current) recognitionRef.current.stop()
-    setIsListening(false)
   }
 
   async function processTranscript(text) {
