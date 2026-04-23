@@ -8,18 +8,13 @@ import OfflineMode from './shared/components/OfflineMode'
 import LowBandwidthMode from './shared/components/LowBandwidthMode'
 
 export default function App() {
-  const [showLanguageSelector, setShowLanguageSelector] = useState(true)
+  const [showLanguageSelector, setShowLanguageSelector] = useState(
+    () => !localStorage.getItem('selectedLanguage')
+  )
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [lowBandwidthMode, setLowBandwidthMode] = useState(false)
 
   useEffect(() => {
-    // Check if user has selected a language before
-    const savedLanguage = localStorage.getItem('selectedLanguage')
-    
-    if (savedLanguage) {
-      setShowLanguageSelector(false)
-    }
-    
     // Check for low bandwidth mode
     const savedLowBandwidth = localStorage.getItem('lowBandwidthMode')
     if (savedLowBandwidth === 'true') {

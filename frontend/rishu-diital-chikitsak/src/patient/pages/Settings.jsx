@@ -74,6 +74,7 @@ const SettingsPage = () => {
     // Handle specific settings
     if (key === 'language' && value !== currentLanguage) {
       changeLanguage(value);
+      localStorage.setItem('selectedLanguage', value); // keep in sync with App.jsx
       toast.success('Language changed successfully!');
     }
     
