@@ -100,7 +100,9 @@ export default function PatientDashboard() {
   const navigate = useNavigate()
   const user = getCurrentUser()
   const [showEmergency, setShowEmergency] = useState(false)
-  const [showVoiceOnboarding, setShowVoiceOnboarding] = useState(true)
+  const [showVoiceOnboarding, setShowVoiceOnboarding] = useState(
+    () => !localStorage.getItem('voiceOnboardingDone')
+  )
   const [tip] = useState(() => HEALTH_TIPS[Math.floor(Math.random() * HEALTH_TIPS.length)])
 
   const getGreeting = () => {
@@ -112,9 +114,12 @@ export default function PatientDashboard() {
 
   if (showEmergency) return <EmergencyHelp />
 
-  // Show voice onboarding first — patient taps mic or skips
+  // Show voice onboarding only on first visit
   if (showVoiceOnboarding) {
-    return <VoiceOnboarding onDismiss={() => setShowVoiceOnboarding(false)} />
+    return <VoiceOnboarding onDismiss={() => {
+      localStorage.setItem('voiceOnboardingDone', '1')
+      setShowVoiceOnboarding(false)
+    }} />
   }
 
   return (
